@@ -1,5 +1,22 @@
+<<<<<<< HEAD
 *.tar.xz
 *.log
 .tmp/
 .cache/
 benchmarks/results/
+=======
+*.tar
+*.tar.*
+*.jar
+*.exe
+*.msi
+*.deb
+*.zip
+*.tgz
+*.log
+*.log.*
+*.sig
+
+pkg/
+src/
+>>>>>>> a650cc63c083f8b4f05799051389d19757104d12
