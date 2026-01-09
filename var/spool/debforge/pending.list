@@ -1,0 +1,78 @@
+#!/usr/bin/env bash
+BASE="/data/data/com.termux/files/home/debforge-aarch64/var/spool/debforge"
+FILE="$BASE/pending.list.db"
+LOCK="$BASE/pending.lock"
+touch "$FILE"
+
+lock() { exec 8>"$LOCK"; flock -x 8; }
+unlock() { flock -u 8; exec 8>&-; }
+
+now() { date +%s; }
+
+add() {
+  lock
+  local id="$(now).$$.$RANDOM"
+  local type="$1"
+  local payload="$2"
+  local prio="${3:-5}"
+  printf "%s|%s|%s|%s|pending|0\n" "$id" "$type" "$prio" "$payload" >> "$FILE"
+  unlock
+  echo "$id"
+}
+
+remove() {
+  lock
+  grep -v "^$1|" "$FILE" > "$FILE.tmp" || true
+  mv "$FILE.tmp" "$FILE"
+  unlock
+}
+
+bump_retry() {
+  lock
+  local id="$1"
+  while IFS='|' read -r i t p d s r; do
+    if [ "$i" = "$id" ]; then
+      r=$((r+1))
+      printf "%s|%s|%s|%s|pending|%s\n" "$i" "$t" "$p" "$d" "$r"
+    else
+      printf "%s|%s|%s|%s|%s|%s\n" "$i" "$t" "$p" "$d" "$s" "$r"
+    fi
+  done < "$FILE" > "$FILE.tmp"
+  mv "$FILE.tmp" "$FILE"
+  unlock
+}
+
+list() {
+  cat "$FILE"
+}
+
+count() {
+  wc -l < "$FILE"
+}
+
+promote() {
+  lock
+  local id="$1"
+  local line="$(grep "^$id|" "$FILE")"
+  [ -z "$line" ] && unlock && return 1
+  echo "$line" >> "$BASE/queue.list.db"
+  grep -v "^$id|" "$FILE" > "$FILE.tmp" || true
+  mv "$FILE.tmp" "$FILE"
+  unlock
+}
+
+purge() {
+  lock
+  local max="$1"
+  while IFS='|' read -r i t p d s r; do
+    [ "$r" -lt "$max" ] && printf "%s|%s|%s|%s|%s|%s\n" "$i" "$t" "$p" "$d" "$s" "$r"
+  done < "$FILE" > "$FILE.tmp"
+  mv "$FILE.tmp" "$FILE"
+  unlock
+}
+
+stats() {
+  printf "pending=%s\n" "$(wc -l < "$FILE")"
+}
+
+"$@"

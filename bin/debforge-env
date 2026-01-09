@@ -1,0 +1,183 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+ROOT="$HOME/debforge-aarch64"
+
+ENVCORE="$ROOT/env"
+ETC="$ROOT/etc"
+VAR="$ROOT/var"
+
+LIB="$VAR/lib/debforge"
+STATE="$LIB/state"
+RUN="$VAR/run/debforge"
+LOCK="$VAR/lock"
+
+CONF="$ETC/debforge/debforge.conf"
+PATHS="$ETC/debforge/paths.conf"
+PROFILES="$ETC/profiles"
+
+ENVDB="$LIB/env.db"
+SNAPSHOT="$LIB/env.snapshot"
+STATEFILE="$STATE/env.state"
+
+PIDFILE="$RUN/env.pid"
+LOCKFILE="$LOCK/debforge.lock"
+
+LOG="$ROOT/logs/env.log"
+
+ts(){ date +"%Y-%m-%d %H:%M:%S"; }
+log(){ printf "[%s][ENV] %s\n" "$(ts)" "$*" | tee -a "$LOG"; }
+die(){ log "FATAL: $1"; exit 1; }
+
+lock(){
+  exec 9>"$LOCKFILE"
+  flock -n 9 || die "another debforge process running"
+}
+
+pidfile(){
+  mkdir -p "$RUN"
+  echo $$ > "$PIDFILE"
+}
+
+cleanup(){
+  rm -f "$PIDFILE"
+}
+
+kv_set(){
+  sed -i "/^$1=/d" "$ENVDB"
+  printf "%s=%s\n" "$1" "$2" >> "$ENVDB"
+}
+
+kv_get(){
+  grep "^$1=" "$ENVDB" | cut -d= -f2-
+}
+
+load_conf(){
+  : > "$ENVDB"
+  [ -f "$CONF" ] && cat "$CONF" >> "$ENVDB"
+  [ -f "$PATHS" ] && cat "$PATHS" >> "$ENVDB"
+}
+
+apply_env(){
+  while IFS='=' read -r k v; do
+    [ -z "$k" ] && continue
+    export "$k=$v"
+  done < "$ENVDB"
+}
+
+detect_env(){
+  "$ENVCORE/detect.sh"
+  while IFS='=' read -r k v; do
+    kv_set "SYS_$k" "$v"
+  done < "$STATE/detect.state"
+}
+
+sandbox_env(){
+  kv_set DEBFORGE_SANDBOX 1
+  kv_set HOME "$ROOT/runtime/sandbox"
+  kv_set TMPDIR "$ROOT/runtime/sandbox/tmp"
+  mkdir -p "$HOME" "$TMPDIR"
+}
+
+snapshot_env(){
+  env | sort > "$SNAPSHOT"
+  log "environment snapshot saved"
+}
+
+restore_env(){
+  [ -f "$SNAPSHOT" ] || die "no snapshot"
+  while IFS='=' read -r k v; do
+    export "$k=$v"
+  done < "$SNAPSHOT"
+  log "environment restored"
+}
+
+profile_load(){
+  local p="$1"
+  local f="$PROFILES/$p.profile"
+  [ -f "$f" ] || die "profile not found"
+  sed -i '/^PROFILE=/d' "$ENVDB"
+  cat "$f" >> "$ENVDB"
+  kv_set PROFILE "$p"
+  log "profile loaded: $p"
+}
+
+dump_env(){
+  env | sort
+}
+
+validate_env(){
+  for v in PATH HOME USER; do
+    [ -n "${!v:-}" ] || die "missing env $v"
+  done
+  log "environment valid"
+}
+
+state_mark(){
+  printf "%s=%s\n" "$1" "$2" >> "$STATEFILE"
+}
+
+usage(){
+  cat << USAGE
+debforge-env
+debforge-env dump
+debforge-env snapshot
+debforge-env restore
+debforge-env sandbox
+debforge-env profile <name>
+USAGE
+  exit 1
+}
+
+trap cleanup EXIT
+trap 'die "env aborted"' ERR
+
+main(){
+  mkdir -p "$STATE" "$RUN"
+  : > "$STATEFILE"
+  : > "$LOG"
+
+  lock
+  pidfile
+
+  state_mark START "$(date +%s)"
+
+  load_conf
+  detect_env
+
+  case "${1:-}" in
+    "")
+      apply_env
+      ;;
+    dump)
+      dump_env
+      ;;
+    snapshot)
+      snapshot_env
+      ;;
+    restore)
+      restore_env
+      ;;
+    sandbox)
+      sandbox_env
+      apply_env
+      ;;
+    profile)
+      [ -n "${2:-}" ] || usage
+      profile_load "$2"
+      apply_env
+      ;;
+    *)
+      usage
+      ;;
+  esac
+
+  validate_env
+
+  state_mark END "$(date +%s)"
+  state_mark STATUS success
+
+  log "ENV COMPLETE"
+}
+
+main "$@"

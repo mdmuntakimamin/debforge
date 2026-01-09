@@ -1,0 +1,37 @@
+.TH DEBFORGE 1 "2026" "DebForge 1.0.0" "User Commands"
+.SH NAME
+debforge \- Debian package build framework
+.SH SYNOPSIS
+.B debforge
+.RI <command> " [options]"
+.SH DESCRIPTION
+DebForge is a command-line framework for building, validating,
+and packaging Debian (.deb) packages using a structured workflow.
+.SH COMMANDS
+.TP
+.B init
+Initialize a new workspace.
+.TP
+.B build
+Build package contents.
+.TP
+.B validate
+Validate package structure.
+.TP
+.B package
+Create the final Debian package.
+.TP
+.B clean
+Remove temporary files.
+.TP
+.B status
+Show current state.
+.TP
+.B debug
+Display debug information.
+.SH OPTIONS
+.TP
+.B --help
+Show help information.
+.SH SEE ALSO
+debforge-build(1), debforge-package(1)

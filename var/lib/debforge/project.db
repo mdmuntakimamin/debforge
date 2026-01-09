@@ -1,0 +1,43 @@
+DB="/data/data/com.termux/files/home/debforge-aarch64/var/lib/debforge/project.db.data"
+touch "$DB"
+
+project_create() {
+  local name="$1"
+  local path="$2"
+  local type="$3"
+  local time="$(date +%s)"
+  printf "%s|%s|%s|%s|active\n" "$name" "$path" "$type" "$time" >> "$DB"
+}
+
+project_set() {
+  local name="$1"
+  local key="$2"
+  local val="$3"
+  grep -v "^$name|" "$DB" > "$DB.tmp" || true
+  local line="$(grep "^$name|" "$DB")"
+  IFS='|' read -r n p t c s <<< "$line"
+  case "$key" in
+    path) p="$val" ;;
+    type) t="$val" ;;
+    state) s="$val" ;;
+  esac
+  printf "%s|%s|%s|%s|%s\n" "$n" "$p" "$t" "$c" "$s" >> "$DB.tmp"
+  mv "$DB.tmp" "$DB"
+}
+
+project_get() {
+  grep "^$1|" "$DB"
+}
+
+project_list() {
+  cut -d'|' -f1 "$DB"
+}
+
+project_remove() {
+  grep -v "^$1|" "$DB" > "$DB.tmp" || true
+  mv "$DB.tmp" "$DB"
+}
+
+project_export() {
+  cat "$DB"
+}

@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+LOCK_PATH="/data/data/com.termux/files/home/debforge-aarch64/var/lock/build.lock.file"
+META_PATH="/data/data/com.termux/files/home/debforge-aarch64/var/lock/build.lock.meta"
+FD=201
+TIMEOUT=60
+
+now() { date +%s; }
+
+pid_alive() {
+  local p="$1"
+  [ -n "$p" ] && kill -0 "$p" 2>/dev/null
+}
+
+write_meta() {
+  printf "PID=%s\nTIME=%s\nHOST=%s\nMODE=%s\n" "$1" "$2" "$3" "$4" > "$META_PATH"
+}
+
+read_meta() {
+  [ -f "$META_PATH" ] && source "$META_PATH"
+}
+
+acquire() {
+  local mode="$1"
+  local start="$(now)"
+  exec {FD}>"$LOCK_PATH"
+  while ! flock -n "$FD"; do
+    read_meta
+    if ! pid_alive "$PID"; then
+      rm -f "$LOCK_PATH" "$META_PATH"
+      exec {FD}>"$LOCK_PATH"
+      flock -n "$FD" && break
+    fi
+    [ $(( $(now) - start )) -ge "$TIMEOUT" ] && return 1
+    sleep 1
+  done
+  write_meta "$$" "$(now)" "$(hostname)" "$mode"
+  return 0
+}
+
+release() {
+  rm -f "$META_PATH"
+  flock -u "$FD"
+  exec {FD}>&-
+}
+
+status() {
+  if [ -f "$META_PATH" ]; then
+    read_meta
+    printf "locked %s %s %s %s\n" "$PID" "$TIME" "$HOST" "$MODE"
+  else
+    printf "unlocked\n"
+  fi
+}
+
+wait_lock() {
+  local t="$1"
+  TIMEOUT="$t"
+  acquire exclusive
+}
+
+force_release() {
+  rm -f "$LOCK_PATH" "$META_PATH"
+}
+
+renew() {
+  read_meta
+  write_meta "$PID" "$(now)" "$HOST" "$MODE"
+}
+
+acquire exclusive

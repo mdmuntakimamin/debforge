@@ -1,0 +1,34 @@
+Package=unnamed
+Version=0.0.1
+Section=utils
+Priority=optional
+Architecture=all
+Essential=no
+Multi-Arch=foreign
+
+Maintainer=Unknown <unknown@localhost>
+Homepage=
+
+Depends=
+Pre-Depends=
+Recommends=
+Suggests=
+Enhances=
+Conflicts=
+Breaks=
+Replaces=
+
+Provides=
+
+Installed-Size=0
+
+Description=DebForge generated package
+Description-Long=This package was generated using DebForge.
+Description-Long+=No additional description was provided.
+Description-Long+=Defaults were applied automatically.
+
+Rules:
+Package MUST_NOT_BE_EMPTY
+Version MUST_MATCH ^[0-9]+\.[0-9]+\.[0-9]+$
+Architecture MUST_BE_VALID
+Maintainer MUST_CONTAIN "<" ">"

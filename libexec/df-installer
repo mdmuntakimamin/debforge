@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+set -e
+PKG="$1"
+[ ! -f "$PKG" ] && echo "deb not found" && exit 1
+TMP="$(mktemp -d)"
+dpkg-deb -x "$PKG" "$TMP"
+dpkg-deb -e "$PKG" "$TMP/DEBIAN"
+if [ -f "$TMP/DEBIAN/preinst" ]; then sh "$TMP/DEBIAN/preinst"; fi
+cp -a "$TMP"/* /
+if [ -f "$TMP/DEBIAN/postinst" ]; then sh "$TMP/DEBIAN/postinst"; fi
+echo "$PKG installed"
+rm -rf "$TMP"

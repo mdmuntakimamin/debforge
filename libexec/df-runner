@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+set -e
+PKG="$1"
+[ ! -f "$PKG" ] && echo "deb required" && exit 1
+TMP="$(mktemp -d)"
+dpkg-deb -x "$PKG" "$TMP"
+BIN="$(find "$TMP" -type f -perm -111 | head -n 1)"
+[ -z "$BIN" ] && echo "no executable" && exit 1
+export PATH="$TMP/usr/bin:$PATH"
+"$BIN"
+rm -rf "$TMP"

@@ -1,0 +1,38 @@
+STATE=idle
+PACKAGE=
+EXEC=
+PID=
+STARTED=
+EXIT_CODE=
+FINISHED=
+ERROR=
+
+begin_run() {
+  PACKAGE="$1"
+  EXEC="$2"
+  STATE=running
+  PID="$$"
+  STARTED="$(date +%s)"
+}
+
+finish_run() {
+  EXIT_CODE="$1"
+  STATE=finished
+  FINISHED="$(date +%s)"
+}
+
+fail_run() {
+  ERROR="$1"
+  STATE=failed
+  FINISHED="$(date +%s)"
+}
+
+export_state() {
+  printf "STATE=%s\nPACKAGE=%s\nEXEC=%s\nPID=%s\nSTARTED=%s\nEXIT_CODE=%s\nFINISHED=%s\nERROR=%s\n" \
+  "$STATE" "$PACKAGE" "$EXEC" "$PID" "$STARTED" "$EXIT_CODE" "$FINISHED" "$ERROR" \
+  > runtime/runner.state
+}
+
+load_state() {
+  source runtime/runner.state
+}

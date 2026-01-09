@@ -1,0 +1,32 @@
+/usr/bin           root root 0755
+/usr/sbin          root root 0755
+/usr/lib           root root 0755
+/usr/libexec       root root 0755
+/usr/share         root root 0755
+/usr/include       root root 0755
+
+/etc               root root 0755
+/etc/debforge      root root 0755
+
+/var               root root 0755
+/var/cache         root root 0755
+/var/cache/debforge root root 0755
+/var/lib           root root 0755
+/var/lib/debforge  root root 0755
+/var/log           root root 0755
+/var/log/debforge  root root 0755
+/var/run           root root 0755
+/var/run/debforge  root root 0755
+/var/lock          root root 0755
+/var/tmp           root root 1777
+
+runtime            root root 0755
+runtime/stage      root root 0755
+runtime/rootfs     root root 0755
+runtime/extract    root root 0755
+
+Rules:
+Directories MUST_HAVE_EXECUTE
+Executables MUST_BE_0755
+ConfigFiles MUST_BE_0644
+StateFiles MUST_BE_0644

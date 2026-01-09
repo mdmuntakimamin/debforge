@@ -1,0 +1,64 @@
+CACHE_FILE="/data/data/com.termux/files/home/debforge-aarch64/var/cache/debforge/build.cache.db"
+touch "$CACHE_FILE"
+
+cache_set() {
+  local key="$1"
+  local value="$2"
+  grep -v "^$key=" "$CACHE_FILE" > "$CACHE_FILE.tmp" || true
+  printf "%s=%s\n" "$key" "$value" >> "$CACHE_FILE.tmp"
+  mv "$CACHE_FILE.tmp" "$CACHE_FILE"
+}
+
+cache_get() {
+  local key="$1"
+  grep "^$key=" "$CACHE_FILE" | tail -n1 | cut -d= -f2-
+}
+
+cache_has() {
+  local key="$1"
+  grep -q "^$key=" "$CACHE_FILE"
+}
+
+cache_remove() {
+  local key="$1"
+  grep -v "^$key=" "$CACHE_FILE" > "$CACHE_FILE.tmp" || true
+  mv "$CACHE_FILE.tmp" "$CACHE_FILE"
+}
+
+cache_clear() {
+  : > "$CACHE_FILE"
+}
+
+cache_timestamp() {
+  date +%s
+}
+
+cache_register_build() {
+  local project="$1"
+  local stage="$2"
+  local ts="$(cache_timestamp)"
+  cache_set "build.$project.stage" "$stage"
+  cache_set "build.$project.time" "$ts"
+}
+
+cache_build_completed() {
+  local project="$1"
+  cache_set "build.$project.status" "done"
+  cache_set "build.$project.finished" "$(cache_timestamp)"
+}
+
+cache_build_failed() {
+  local project="$1"
+  local error="$2"
+  cache_set "build.$project.status" "failed"
+  cache_set "build.$project.error" "$error"
+  cache_set "build.$project.finished" "$(cache_timestamp)"
+}
+
+cache_list_builds() {
+  cut -d= -f1 "$CACHE_FILE" | grep '^build\.' | sort -u
+}
+
+cache_export() {
+  cat "$CACHE_FILE"
+}

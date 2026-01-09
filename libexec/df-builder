@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+set -e
+ROOT="$(pwd)"
+PROJECT="$1"
+[ -z "$PROJECT" ] && echo "project required" && exit 1
+WORK="$ROOT/runtime/stage/$PROJECT"
+OUT="$ROOT/output"
+mkdir -p "$WORK" "$OUT"
+source core/config.sh "$PROJECT"
+source core/layout.sh
+source core/control.sh
+source core/permissions.sh
+source core/scripts.sh
+source core/build.sh
+core_layout "$PROJECT" "$WORK"
+core_control "$PROJECT" "$WORK"
+core_permissions "$WORK"
+core_scripts "$PROJECT" "$WORK"
+core_build "$WORK" "$OUT"
+echo "$PROJECT built"

@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+set -e
+ROOT="$(pwd)"
+NAME="$1"
+[ -z "$NAME" ] && echo "sandbox name required" && exit 1
+BOX="$ROOT/runtime/sandbox/$NAME"
+mkdir -p "$BOX"/{bin,lib,etc,usr,var,tmp}
+cp -a core "$BOX/"
+export DF_SANDBOX="$BOX"
+cd "$BOX"
+bash --noprofile --norc

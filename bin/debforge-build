@@ -1,0 +1,155 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+ROOT="$HOME/debforge-aarch64"
+
+BIN="$ROOT/bin"
+CORE="$ROOT/core"
+ENV="$ROOT/env"
+HOOKS="$ROOT/hooks"
+
+RT="$ROOT/runtime"
+FS="$RT/rootfs"
+OUT="$ROOT/output"
+
+VAR="$ROOT/var"
+STATE="$VAR/lib/debforge/state/build.state"
+LOCK="$VAR/lock/build.lock"
+PID="$VAR/run/debforge/build.pid"
+
+LOG="$ROOT/logs/build.log"
+
+ts(){ date +"%Y-%m-%d %H:%M:%S"; }
+log(){ printf "[%s][BUILD] %s\n" "$(ts)" "$*" | tee -a "$LOG"; }
+die(){ log "FATAL: $1"; exit 1; }
+
+run(){
+  log "RUN: $*"
+  "$@" >> "$LOG" 2>&1
+}
+
+require(){
+  [ -x "$1" ] || die "missing $1"
+}
+
+state(){
+  printf "%s=%s\n" "$1" "$2" >> "$STATE"
+}
+
+lock(){
+  exec 9>"$LOCK"
+  flock -n 9 || die "build already running"
+}
+
+unlock(){
+  rm -f "$LOCK"
+}
+
+pidfile(){
+  echo $$ > "$PID"
+}
+
+cleanup_pid(){
+  rm -f "$PID"
+}
+
+trap 'die "build aborted"' ERR
+trap 'cleanup_pid; unlock' EXIT
+
+prepare(){
+  mkdir -p "$OUT" "$VAR/cache/debforge" "$VAR/lib/debforge/state" "$VAR/run/debforge"
+  : > "$STATE"
+  : > "$LOG"
+  pidfile
+  lock
+}
+
+hooks(){
+  local h="$1"
+  [ -x "$HOOKS/$h" ] && run "$HOOKS/$h"
+}
+
+main(){
+  prepare
+  state START "$(date +%s)"
+
+  require "$ENV/detect.sh"
+  require "$ENV/sanity.sh"
+  require "$CORE/config.sh"
+  require "$CORE/project.sh"
+  require "$CORE/layout.sh"
+  require "$CORE/rootfs.sh"
+  require "$CORE/permissions.sh"
+  require "$CORE/desktop.sh"
+  require "$CORE/icons.sh"
+  require "$CORE/scripts.sh"
+  require "$CORE/strip.sh"
+  require "$CORE/checksum.sh"
+  require "$CORE/control.sh"
+  require "$CORE/validate.sh"
+  require "$CORE/archive.sh"
+  require "$CORE/sign.sh"
+  require "$CORE/cleanup.sh"
+
+  log "phase: detect"
+  run "$ENV/detect.sh"
+
+  log "phase: sanity"
+  run "$ENV/sanity.sh"
+
+  log "phase: config"
+  run "$CORE/config.sh"
+
+  log "phase: project"
+  run "$CORE/project.sh" validate
+
+  hooks pre-build
+
+  log "phase: layout"
+  run "$CORE/layout.sh"
+
+  log "phase: rootfs"
+  run "$CORE/rootfs.sh"
+
+  log "phase: permissions"
+  run "$CORE/permissions.sh"
+
+  log "phase: desktop"
+  run "$CORE/desktop.sh"
+
+  log "phase: icons"
+  run "$CORE/icons.sh"
+
+  log "phase: maintainer-scripts"
+  run "$CORE/scripts.sh"
+
+  log "phase: strip"
+  run "$CORE/strip.sh"
+
+  log "phase: checksum"
+  run "$CORE/checksum.sh"
+
+  log "phase: control"
+  run "$CORE/control.sh"
+
+  log "phase: validate"
+  run "$CORE/validate.sh"
+
+  log "phase: archive"
+  run "$CORE/archive.sh"
+
+  log "phase: sign"
+  run "$CORE/sign.sh"
+
+  hooks post-build
+
+  log "phase: cleanup"
+  run "$CORE/cleanup.sh"
+
+  state END "$(date +%s)"
+  state STATUS success
+
+  log "BUILD COMPLETE"
+}
+
+main "$@"

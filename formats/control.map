@@ -1,0 +1,32 @@
+Package        <- project.name
+Version        <- project.version
+Section        <- default(utils)
+Priority       <- default(optional)
+Architecture   <- build.arch
+Essential     <- default(no)
+
+Maintainer     <- project.maintainer
+Homepage       <- project.homepage
+Description    <- project.description
+
+Depends        <- dependencies.run_dep
+Build-Depends  <- dependencies.build_dep
+Conflicts      <- dependencies.conflict
+Replaces       <- dependencies.replace
+
+Installed-Size <- computed(size_kb)
+
+Rules:
+  IF build.arch == all THEN Architecture=all
+  IF description IS_EMPTY THEN Description="DebForge package"
+  IF maintainer IS_EMPTY THEN FAIL
+
+Transform:
+  list -> comma-separated
+  size -> kilobytes
+  string -> sanitized
+
+Validate:
+  REQUIRED Package Version Architecture Maintainer Description
+  FORBID spaces in Package
+  MAX Description 1024 chars

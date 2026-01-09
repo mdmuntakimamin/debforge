@@ -1,0 +1,57 @@
+CACHE_FILE="/data/data/com.termux/files/home/debforge-aarch64/var/cache/debforge/control.cache.db"
+touch "$CACHE_FILE"
+
+control_set() {
+  local pkg="$1"
+  local field="$2"
+  local value="$3"
+  grep -v "^$pkg:$field=" "$CACHE_FILE" > "$CACHE_FILE.tmp" || true
+  printf "%s:%s=%s\n" "$pkg" "$field" "$value" >> "$CACHE_FILE.tmp"
+  mv "$CACHE_FILE.tmp" "$CACHE_FILE"
+}
+
+control_get() {
+  local pkg="$1"
+  local field="$2"
+  grep "^$pkg:$field=" "$CACHE_FILE" | tail -n1 | cut -d= -f2-
+}
+
+control_has() {
+  local pkg="$1"
+  local field="$2"
+  grep -q "^$pkg:$field=" "$CACHE_FILE"
+}
+
+control_remove_pkg() {
+  local pkg="$1"
+  grep -v "^$pkg:" "$CACHE_FILE" > "$CACHE_FILE.tmp" || true
+  mv "$CACHE_FILE.tmp" "$CACHE_FILE"
+}
+
+control_fields() {
+  local pkg="$1"
+  grep "^$pkg:" "$CACHE_FILE" | cut -d: -f2 | cut -d= -f1
+}
+
+control_import() {
+  local pkg="$1"
+  local file="$2"
+  while IFS=':' read -r key val; do
+    key="$(echo "$key" | tr -d ' ')"
+    val="$(echo "$val" | sed 's/^ //')"
+    [ -n "$key" ] && control_set "$pkg" "$key" "$val"
+  done < "$file"
+}
+
+control_export_pkg() {
+  local pkg="$1"
+  grep "^$pkg:" "$CACHE_FILE" | sed "s/^$pkg://"
+}
+
+control_clear() {
+  : > "$CACHE_FILE"
+}
+
+control_export_all() {
+  cat "$CACHE_FILE"
+}

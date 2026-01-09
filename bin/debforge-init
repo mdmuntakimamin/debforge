@@ -1,0 +1,206 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+ROOT="$HOME/debforge-aarch64"
+CORE="$ROOT/core"
+FORMATS="$ROOT/formats"
+ETC="$ROOT/etc"
+VAR="$ROOT/var"
+LIB="$VAR/lib/debforge"
+STATE="$LIB/state"
+CACHE="$VAR/cache/debforge"
+LOCK="$VAR/lock"
+RUN="$VAR/run/debforge"
+
+LOG="$ROOT/logs/init.log"
+LOCKFILE="$LOCK/debforge.lock"
+PIDFILE="$RUN/init.pid"
+
+PROJECT_DIR="${PWD}"
+PROJECT_DB="$PROJECT_DIR/.debforge/project.db"
+PROJECT_STATE="$PROJECT_DIR/.debforge/project.state"
+CONTROL="$PROJECT_DIR/debian/control"
+RULES="$PROJECT_DIR/debian/rules"
+CHANGELOG="$PROJECT_DIR/debian/changelog"
+COMPAT="$PROJECT_DIR/debian/compat"
+INSTALL="$PROJECT_DIR/debian/install"
+
+ts(){ date +"%Y-%m-%d %H:%M:%S"; }
+log(){ printf "[%s][INIT] %s\n" "$(ts)" "$*" | tee -a "$LOG"; }
+die(){ log "FATAL: $1"; exit 1; }
+
+lock(){
+  exec 9>"$LOCKFILE"
+  flock -n 9 || die "debforge already running"
+}
+
+pidfile(){
+  mkdir -p "$RUN"
+  echo $$ > "$PIDFILE"
+}
+
+cleanup(){
+  rm -f "$PIDFILE"
+}
+
+ensure_dirs(){
+  mkdir -p \
+    "$STATE" \
+    "$CACHE" \
+    "$LIB" \
+    "$PROJECT_DIR/.debforge" \
+    "$PROJECT_DIR/debian"
+}
+
+validate_name(){
+  [[ "$1" =~ ^[a-z0-9][a-z0-9+.-]+$ ]] || die "invalid package name"
+}
+
+write_project_db(){
+  cat > "$PROJECT_DB" << DB
+NAME=$1
+VERSION=$2
+ARCH=$3
+MAINTAINER=$4
+EMAIL=$5
+DESCRIPTION=$6
+SECTION=$7
+PRIORITY=$8
+BUILD_DATE=$(date -u +%Y%m%d%H%M%S)
+ROOT=$PROJECT_DIR
+DB
+}
+
+write_control(){
+  cat > "$CONTROL" << CONTROL
+Source: $1
+Section: $7
+Priority: $8
+Maintainer: $4 <$5>
+Build-Depends: debhelper (>= 11)
+Standards-Version: 4.5.0
+Homepage: none
+
+Package: $1
+Architecture: $3
+Depends: \${shlibs:Depends}, \${misc:Depends}
+Description: $6
+CONTROL
+}
+
+write_rules(){
+  cat > "$RULES" << 'RULES'
+#!/usr/bin/make -f
+export DH_VERBOSE=1
+
+%:
+dh $@
+RULES
+  chmod +x "$RULES"
+}
+
+write_changelog(){
+  cat > "$CHANGELOG" << CHANGELOG
+$1 ($2-1) unstable; urgency=medium
+
+  * Initial release
+
+ -- $4 <$5>  $(date -R)
+CHANGELOG
+}
+
+write_compat(){
+  echo "11" > "$COMPAT"
+}
+
+write_install(){
+  cat > "$INSTALL" << INSTALL
+usr/bin/*
+INSTALL
+}
+
+write_state(){
+  cat > "$PROJECT_STATE" << STATE
+INIT_TIME=$(date +%s)
+STATUS=initialized
+STATE
+}
+
+init_cache(){
+  : > "$CACHE/build.cache"
+  : > "$CACHE/control.cache"
+  : > "$CACHE/checksum.cache"
+}
+
+register_global(){
+  mkdir -p "$LIB"
+  echo "$PROJECT_DIR" >> "$LIB/project.db"
+}
+
+usage(){
+  cat << USAGE
+debforge-init \\
+  --name <pkg> \\
+  --version <ver> \\
+  --arch <arch> \\
+  --maintainer <name> \\
+  --email <email> \\
+  --desc <description> \\
+  --section <section> \\
+  --priority <priority>
+USAGE
+  exit 1
+}
+
+trap cleanup EXIT
+trap 'die "initialization failed"' ERR
+
+main(){
+  : > "$LOG"
+  lock
+  pidfile
+  ensure_dirs
+
+  local NAME="" VERSION="" ARCH="" MAINTAINER="" EMAIL="" DESC="" SECTION="" PRIORITY=""
+
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --name) NAME="$2"; shift 2;;
+      --version) VERSION="$2"; shift 2;;
+      --arch) ARCH="$2"; shift 2;;
+      --maintainer) MAINTAINER="$2"; shift 2;;
+      --email) EMAIL="$2"; shift 2;;
+      --desc) DESC="$2"; shift 2;;
+      --section) SECTION="$2"; shift 2;;
+      --priority) PRIORITY="$2"; shift 2;;
+      *) usage;;
+    esac
+  done
+
+  [ -n "$NAME" ] || usage
+  [ -n "$VERSION" ] || usage
+  [ -n "$ARCH" ] || usage
+  [ -n "$MAINTAINER" ] || usage
+  [ -n "$EMAIL" ] || usage
+  [ -n "$DESC" ] || usage
+  [ -n "$SECTION" ] || usage
+  [ -n "$PRIORITY" ] || usage
+
+  validate_name "$NAME"
+
+  log "creating project $NAME"
+
+  write_project_db "$NAME" "$VERSION" "$ARCH" "$MAINTAINER" "$EMAIL" "$DESC" "$SECTION" "$PRIORITY"
+  write_control "$NAME" "$VERSION" "$ARCH" "$MAINTAINER" "$EMAIL" "$DESC" "$SECTION" "$PRIORITY"
+  write_rules
+  write_changelog "$NAME" "$VERSION" "$MAINTAINER" "$EMAIL"
+  write_compat
+  write_install
+  write_state
+  init_cache
+  register_global
+
+  log "project initialized successfully"
+}
+
+main "$@"

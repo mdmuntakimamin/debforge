@@ -1,0 +1,60 @@
+preinst:
+  interpreter=/bin/sh
+  user=root
+  strict=true
+  timeout=30
+  fail=abort
+
+postinst:
+  interpreter=/bin/sh
+  user=root
+  strict=true
+  timeout=30
+  fail=abort
+
+prerm:
+  interpreter=/bin/sh
+  user=root
+  strict=true
+  timeout=30
+  fail=abort
+
+postrm:
+  interpreter=/bin/sh
+  user=root
+  strict=true
+  timeout=30
+  fail=abort
+
+prebuild:
+  interpreter=/bin/bash
+  user=package
+  strict=true
+  timeout=0
+  fail=abort
+
+postbuild:
+  interpreter=/bin/bash
+  user=package
+  strict=true
+  timeout=0
+  fail=abort
+
+prerun:
+  interpreter=/bin/bash
+  user=package
+  strict=true
+  timeout=0
+  fail=abort
+
+postrun:
+  interpreter=/bin/bash
+  user=package
+  strict=true
+  timeout=0
+  fail=abort
+
+Policy:
+Scripts MUST_BE_EXECUTABLE
+Scripts MUST_EXIT_ZERO
+Scripts MUST_NOT_WRITE_SYSTEM

@@ -1,0 +1,320 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+ROOT="$HOME/debforge-aarch64"
+BIN="$ROOT/bin"
+CORE="$ROOT/core"
+ENV="$ROOT/env"
+ETC="$ROOT/etc"
+VAR="$ROOT/var"
+LIB="$VAR/lib/debforge"
+STATE="$LIB/state"
+RUN="$VAR/run/debforge"
+LOCK="$VAR/lock"
+LOG="$ROOT/logs/help.log"
+VERSION_FILE="$ROOT/VERSION"
+
+ts(){ date +"%Y-%m-%d %H:%M:%S"; }
+log(){ printf "[%s][HELP] %s\n" "$(ts)" "$*" >> "$LOG"; }
+
+version(){
+  [ -f "$VERSION_FILE" ] && cat "$VERSION_FILE" || echo "unknown"
+}
+
+headline(){
+  printf "\n==== %s ====\n" "$1"
+}
+
+section(){
+  printf "\n-- %s --\n" "$1"
+}
+
+cmd_exists(){
+  [ -x "$BIN/$1" ]
+}
+
+list_cmds(){
+  ls "$BIN" | sort
+}
+
+print_intro(){
+  headline "DebForge — Debian Package Construction System"
+  cat << INTRO
+DebForge is a deterministic, sandbox-aware, stateful Debian package
+construction system designed for reproducible builds, isolation,
+and forensic debugging.
+
+Version: $(version)
+Root:    $ROOT
+
+DebForge is NOT a wrapper.
+DebForge is NOT a toy.
+DebForge is a controlled build engine.
+
+INTRO
+}
+
+print_workflow(){
+  headline "Core Workflow"
+  cat << FLOW
+1. debforge-init
+   Creates a new project structure with metadata
+
+2. debforge-edit
+   Opens controlled editable workspace
+
+3. debforge-build
+   Resolves dependencies, builds rootfs, produces .deb
+
+4. debforge-validate
+   Verifies control, permissions, scripts, checksums
+
+5. debforge-run
+   Executes package inside isolated runtime
+
+6. debforge-install
+   Installs built package locally (optional)
+
+7. debforge-clean
+   Cleans build artifacts, caches, states
+
+Each step writes state files and logs.
+Nothing is implicit.
+FLOW
+}
+
+print_commands(){
+  headline "Available Commands"
+  for c in $(list_cmds); do
+    printf "• %s\n" "$c"
+  done
+}
+
+print_command_help(){
+  local c="$1"
+  [ -x "$BIN/$c" ] || { echo "Command not found"; exit 1; }
+
+  headline "Help: $c"
+
+  case "$c" in
+    debforge-build)
+      cat << BUILD
+Orchestrates full Debian package build.
+
+Stages:
+- environment preparation
+- dependency resolution
+- rootfs generation
+- metadata injection
+- control file generation
+- script normalization
+- checksum signing
+- .deb archive creation
+
+State:
+$STATE/build.state
+
+Logs:
+logs/build.log
+BUILD
+      ;;
+    debforge-edit)
+      cat << EDIT
+Opens project in editable state.
+
+Features:
+- snapshot before edit
+- hook execution
+- permission normalization
+- conflict detection
+
+State:
+$STATE/edit.state
+EDIT
+      ;;
+    debforge-run)
+      cat << RUN
+Runs built package in isolated runtime.
+
+Isolation:
+- private HOME
+- redirected PATH
+- optional sandbox
+
+State:
+$STATE/run.state
+RUN
+      ;;
+    debforge-env)
+      cat << ENVHELP
+Manages DebForge execution environment.
+
+Capabilities:
+- detect host
+- apply profiles
+- sandbox HOME/TMP
+- snapshot/restore environment
+ENVHELP
+      ;;
+    debforge-debug)
+      cat << DEBUG
+Debugging and forensic inspection tool.
+
+Functions:
+- dump states
+- dump environment
+- dump locks
+- dump logs
+- trace failures
+DEBUG
+      ;;
+    *)
+      cat << GEN
+No extended help available.
+Inspect source at: $BIN/$c
+GEN
+      ;;
+  esac
+}
+
+print_filesystem(){
+  headline "Filesystem Layout"
+  cat << FS
+bin/        User commands
+core/       Core build logic
+env/        Environment detection & sandbox
+formats/    Spec and mapping formats
+hooks/      Lifecycle hooks
+runtime/    Staging and execution roots
+etc/        Configuration and profiles
+var/        State, cache, locks, run data
+
+Critical paths:
+$STATE      State machines
+$LOCK       Lock files
+$RUN        PID files
+FS
+}
+
+print_states(){
+  headline "State System"
+  cat << STATEHELP
+DebForge uses explicit state files.
+
+Examples:
+build.state    build lifecycle
+edit.state     edit lifecycle
+run.state      runtime lifecycle
+
+States are append-only and timestamped.
+No state is ever assumed.
+STATEHELP
+}
+
+print_locks(){
+  headline "Locking Model"
+  cat << LOCKHELP
+Locks prevent concurrency corruption.
+
+Files:
+$LOCK/debforge.lock
+$LOCK/build.lock
+
+If a lock exists and no PID is running,
+it is safe to remove.
+LOCKHELP
+}
+
+print_profiles(){
+  headline "Profiles"
+  cat << PROF
+Profiles control build behavior.
+
+Location:
+$ETC/profiles/
+
+Examples:
+default.profile
+developer.profile
+minimal.profile
+
+Loaded via:
+debforge-env profile <name>
+PROF
+}
+
+print_sandbox(){
+  headline "Sandbox"
+  cat << SANDBOX
+Sandbox mode isolates:
+
+- HOME
+- TMPDIR
+- PATH
+- runtime filesystem
+
+Enabled via:
+debforge-env sandbox
+SANDBOX
+}
+
+print_recovery(){
+  headline "Recovery & Debugging"
+  cat << REC
+If build fails:
+
+1. debforge-debug dump
+2. Inspect logs/
+3. Inspect state files
+4. Remove stale locks if needed
+5. Re-run debforge-build
+
+Nothing is destroyed unless debforge-clean is executed.
+REC
+}
+
+usage(){
+  cat << USAGE
+debforge-help
+debforge-help commands
+debforge-help workflow
+debforge-help files
+debforge-help states
+debforge-help locks
+debforge-help profiles
+debforge-help sandbox
+debforge-help recovery
+debforge-help <command>
+USAGE
+  exit 0
+}
+
+main(){
+  mkdir -p "$(dirname "$LOG")"
+  log "help invoked: $*"
+
+  case "${1:-}" in
+    "")
+      print_intro
+      print_workflow
+      print_commands
+      ;;
+    commands) print_commands ;;
+    workflow) print_workflow ;;
+    files) print_filesystem ;;
+    states) print_states ;;
+    locks) print_locks ;;
+    profiles) print_profiles ;;
+    sandbox) print_sandbox ;;
+    recovery) print_recovery ;;
+    *)
+      if cmd_exists "$1"; then
+        print_command_help "$1"
+      else
+        usage
+      fi
+      ;;
+  esac
+}
+
+main "$@"

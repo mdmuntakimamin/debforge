@@ -1,0 +1,226 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+ROOT="$HOME/debforge-aarch64"
+
+BIN="$ROOT/bin"
+CORE="$ROOT/core"
+ENV="$ROOT/env"
+HOOKS="$ROOT/hooks"
+
+VAR="$ROOT/var"
+CACHE="$VAR/cache/debforge"
+LIB="$VAR/lib/debforge"
+STATE="$LIB/state"
+RUN="$VAR/run/debforge"
+LOCK="$VAR/lock"
+
+RT="$ROOT/runtime"
+FS="$RT/rootfs"
+OUT="$ROOT/output"
+LOGS="$ROOT/logs"
+
+LOG="$LOGS/debug.log"
+PIDFILE="$RUN/debug.pid"
+LOCKFILE="$LOCK/debforge.lock"
+
+ts(){ date +"%Y-%m-%d %H:%M:%S"; }
+out(){ printf "%s\n" "$*"; }
+log(){ printf "[%s][DEBUG] %s\n" "$(ts)" "$*" | tee -a "$LOG"; }
+sep(){ out "------------------------------------------------------------"; }
+
+lock(){
+  exec 9>"$LOCKFILE"
+  flock -n 9 || { out "another debforge process active"; exit 1; }
+}
+
+pidfile(){
+  mkdir -p "$RUN"
+  echo $$ > "$PIDFILE"
+}
+
+cleanup(){
+  rm -f "$PIDFILE"
+}
+
+exists(){
+  [ -e "$1" ] && out "OK: $1" || out "MISSING: $1"
+}
+
+dump_file(){
+  local f="$1"
+  out "FILE: $f"
+  [ -f "$f" ] && sed 's/^/  /' "$f" || out "  not found"
+}
+
+dump_dir(){
+  local d="$1"
+  out "DIR: $d"
+  [ -d "$d" ] && find "$d" -maxdepth 2 -type f | sed 's/^/  /' || out "  not found"
+}
+
+check_bins(){
+  sep
+  out "BINARIES"
+  for b in debforge debforge-build debforge-clean debforge-debug; do
+    exists "$BIN/$b"
+  done
+}
+
+check_env(){
+  sep
+  out "ENVIRONMENT"
+  out "USER=$(id -un)"
+  out "UID=$(id -u)"
+  out "ARCH=$(uname -m)"
+  out "KERNEL=$(uname -r)"
+  out "SHELL=${SHELL:-unknown}"
+  command -v dpkg-deb >/dev/null && out "dpkg-deb OK" || out "dpkg-deb MISSING"
+}
+
+check_state(){
+  sep
+  out "STATE FILES"
+  dump_dir "$STATE"
+}
+
+check_cache(){
+  sep
+  out "CACHE"
+  dump_dir "$CACHE"
+}
+
+check_locks(){
+  sep
+  out "LOCKS"
+  dump_dir "$LOCK"
+}
+
+check_runtime(){
+  sep
+  out "RUNTIME"
+  exists "$RT"
+  exists "$FS"
+  [ -d "$FS" ] && find "$FS/DEBIAN" -type f 2>/dev/null | sed 's/^/  /'
+}
+
+check_logs(){
+  sep
+  out "LOG FILES"
+  dump_dir "$LOGS"
+}
+
+check_output(){
+  sep
+  out "OUTPUT"
+  dump_dir "$OUT"
+}
+
+check_project(){
+  sep
+  out "PROJECT"
+  dump_file "$LIB/project.db"
+}
+
+check_config(){
+  sep
+  out "CONFIG"
+  dump_file "$LIB/config.db"
+  dump_file "$ROOT/etc/debforge/debforge.conf"
+}
+
+check_control(){
+  sep
+  out "CONTROL FILE"
+  dump_file "$FS/DEBIAN/control"
+}
+
+check_permissions(){
+  sep
+  out "PERMISSIONS"
+  [ -d "$FS/usr/bin" ] && find "$FS/usr/bin" -type f -exec stat -c "%a %n" {} \; | sed 's/^/  /'
+}
+
+check_integrity(){
+  sep
+  out "INTEGRITY"
+  if [ -f "$FS/DEBIAN/md5sums" ]; then
+    md5sum -c "$FS/DEBIAN/md5sums" 2>/dev/null | sed 's/^/  /'
+  else
+    out "  no md5sums"
+  fi
+}
+
+trace_build(){
+  sep
+  out "LAST BUILD TRACE"
+  [ -f "$LOGS/build.log" ] && tail -n 100 "$LOGS/build.log" | sed 's/^/  /'
+}
+
+trace_run(){
+  sep
+  out "LAST RUN TRACE"
+  [ -f "$LOGS/run.log" ] && tail -n 100 "$LOGS/run.log" | sed 's/^/  /'
+}
+
+trace_error(){
+  sep
+  out "LAST ERROR TRACE"
+  [ -f "$LOGS/error.log" ] && tail -n 100 "$LOGS/error.log" | sed 's/^/  /'
+}
+
+summary(){
+  sep
+  out "SUMMARY"
+  out "root=$ROOT"
+  out "runtime_exists=$( [ -d "$RT" ] && echo yes || echo no )"
+  out "output_packages=$(ls "$OUT"/*.deb 2>/dev/null | wc -l)"
+  out "active_locks=$(ls "$LOCK" 2>/dev/null | wc -l)"
+}
+
+usage(){
+  out "debforge-debug [full|env|state|runtime|logs|output]"
+  exit 1
+}
+
+trap cleanup EXIT
+trap 'out "debug aborted"; exit 1' ERR
+
+main(){
+  mkdir -p "$LOGS"
+  : > "$LOG"
+  lock
+  pidfile
+
+  case "${1:-full}" in
+    full)
+      check_env
+      check_bins
+      check_project
+      check_config
+      check_state
+      check_cache
+      check_locks
+      check_runtime
+      check_control
+      check_permissions
+      check_integrity
+      check_output
+      check_logs
+      trace_build
+      trace_run
+      trace_error
+      summary
+      ;;
+    env) check_env ;;
+    state) check_state ;;
+    runtime) check_runtime ;;
+    logs) check_logs ;;
+    output) check_output ;;
+    *) usage ;;
+  esac
+
+  log "DEBUG COMPLETE"
+}
+
+main "$@"

@@ -1,0 +1,50 @@
+STATE=idle
+PROJECT=
+STAGE=
+OUTPUT=
+PID=
+STARTED=
+FINISHED=
+ERROR=
+
+set_state() {
+  STATE="$1"
+  STARTED="$(date +%s)"
+}
+
+set_project() {
+  PROJECT="$1"
+}
+
+set_stage() {
+  STAGE="$1"
+}
+
+set_output() {
+  OUTPUT="$1"
+}
+
+set_pid() {
+  PID="$$"
+}
+
+finish_ok() {
+  STATE=success
+  FINISHED="$(date +%s)"
+}
+
+finish_fail() {
+  STATE=failed
+  ERROR="$1"
+  FINISHED="$(date +%s)"
+}
+
+export_state() {
+  printf "STATE=%s\nPROJECT=%s\nSTAGE=%s\nOUTPUT=%s\nPID=%s\nSTARTED=%s\nFINISHED=%s\nERROR=%s\n" \
+  "$STATE" "$PROJECT" "$STAGE" "$OUTPUT" "$PID" "$STARTED" "$FINISHED" "$ERROR" \
+  > runtime/build.state
+}
+
+load_state() {
+  source runtime/build.state
+}

@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+STATE_FILE="/data/data/com.termux/files/home/debforge-aarch64/var/lib/debforge/state/build.state.db"
+LOCK_FILE="/data/data/com.termux/files/home/debforge-aarch64/var/lib/debforge/state/build.lock"
+touch "$STATE_FILE"
+
+lock() { exec 9>"$LOCK_FILE"; flock -x 9; }
+unlock() { flock -u 9; }
+
+init() {
+  lock
+  printf "STATE=idle\nPROJECT=\nVERSION=\nARCH=\nSTAGE=\nPID=\nSTART=\nEND=\nRESULT=\nERROR=\n" > "$STATE_FILE"
+  unlock
+}
+
+load() { source "$STATE_FILE"; }
+
+begin() {
+  lock
+  printf "STATE=building\nPROJECT=%s\nVERSION=%s\nARCH=%s\nSTAGE=init\nPID=%s\nSTART=%s\nEND=\nRESULT=\nERROR=\n" \
+  "$1" "$2" "$3" "$$" "$(date +%s)" > "$STATE_FILE"
+  unlock
+}
+
+stage() {
+  lock
+  load
+  printf "STATE=%s\nPROJECT=%s\nVERSION=%s\nARCH=%s\nSTAGE=%s\nPID=%s\nSTART=%s\nEND=\nRESULT=\nERROR=\n" \
+  "$STATE" "$PROJECT" "$VERSION" "$ARCH" "$1" "$PID" "$START" > "$STATE_FILE"
+  unlock
+}
+
+success() {
+  lock
+  load
+  printf "STATE=finished\nPROJECT=%s\nVERSION=%s\nARCH=%s\nSTAGE=%s\nPID=%s\nSTART=%s\nEND=%s\nRESULT=success\nERROR=\n" \
+  "$PROJECT" "$VERSION" "$ARCH" "$STAGE" "$PID" "$START" "$(date +%s)" > "$STATE_FILE"
+  unlock
+}
+
+fail() {
+  lock
+  load
+  printf "STATE=failed\nPROJECT=%s\nVERSION=%s\nARCH=%s\nSTAGE=%s\nPID=%s\nSTART=%s\nEND=%s\nRESULT=failed\nERROR=%s\n" \
+  "$PROJECT" "$VERSION" "$ARCH" "$STAGE" "$PID" "$START" "$(date +%s)" "$1" > "$STATE_FILE"
+  unlock
+}
+
+status() { load; printf "%s\n" "$STATE"; }
+reset() { init; }

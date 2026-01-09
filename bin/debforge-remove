@@ -1,0 +1,111 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+ROOT="$HOME/debforge-aarch64"
+VAR="$ROOT/var"
+LIB="$VAR/lib/debforge"
+STATE="$LIB/state"
+RUN="$VAR/run/debforge"
+LOCK="$VAR/lock"
+LOG="$ROOT/logs/remove.log"
+
+LOCKFILE="$LOCK/debforge.lock"
+PIDFILE="$RUN/remove.pid"
+STATEFILE="$STATE/remove.state"
+INSTALLED="$LIB/installed.list"
+
+PKG=""
+PURGE=0
+FORCE=0
+
+ts(){ date +"%Y-%m-%d %H:%M:%S"; }
+log(){ printf "[%s][REMOVE] %s\n" "$(ts)" "$*" | tee -a "$LOG"; }
+die(){ log "FATAL: $1"; exit 1; }
+
+lock(){
+  exec 9>"$LOCKFILE"
+  flock -n 9 || die "another debforge running"
+}
+
+pidfile(){
+  mkdir -p "$RUN"
+  echo $$ > "$PIDFILE"
+}
+
+cleanup(){
+  rm -f "$PIDFILE"
+}
+
+state(){
+  printf "%s=%s\n" "$1" "$2" >> "$STATEFILE"
+}
+
+installed(){
+  dpkg -s "$PKG" >/dev/null 2>&1
+}
+
+check_reverse_deps(){
+  local r
+  r=$(apt-cache rdepends "$PKG" 2>/dev/null | grep -E '^[[:alnum:]]')
+  [ -z "$r" ] || [ "$FORCE" -eq 1 ] || die "reverse deps exist"
+}
+
+remove_pkg(){
+  if [ "$PURGE" -eq 1 ]; then
+    dpkg --purge "$PKG"
+  else
+    dpkg --remove "$PKG"
+  fi
+}
+
+update_registry(){
+  sed -i "/^$PKG /d" "$INSTALLED"
+}
+
+usage(){
+  cat << USAGE
+debforge-remove <package>
+Options:
+  --purge
+  --force
+USAGE
+  exit 1
+}
+
+trap cleanup EXIT
+trap 'die "remove failed"' ERR
+
+main(){
+  : > "$LOG"
+  : > "$STATEFILE"
+
+  lock
+  pidfile
+
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --purge) PURGE=1; shift;;
+      --force) FORCE=1; shift;;
+      -* ) usage;;
+      * ) PKG="$1"; shift;;
+    esac
+  done
+
+  [ -n "$PKG" ] || usage
+
+  state START "$(date +%s)"
+  state PACKAGE "$PKG"
+
+  installed || die "package not installed"
+
+  check_reverse_deps
+  remove_pkg
+  update_registry
+
+  state STATUS success
+  state END "$(date +%s)"
+
+  log "package removed: $PKG"
+}
+
+main "$@"

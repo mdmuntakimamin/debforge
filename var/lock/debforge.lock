@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+LOCK_PATH="/data/data/com.termux/files/home/debforge-aarch64/var/lock/debforge.lock.file"
+META_PATH="/data/data/com.termux/files/home/debforge-aarch64/var/lock/debforge.lock.meta"
+FD=202
+WAIT=120
+
+ts() { date +%s; }
+
+alive() {
+  local p="$1"
+  [ -n "$p" ] && kill -0 "$p" 2>/dev/null
+}
+
+meta_set() {
+  printf "PID=%s\nTIME=%s\nUSER=%s\nCMD=%s\n" "$1" "$2" "$3" "$4" > "$META_PATH"
+}
+
+meta_get() {
+  [ -f "$META_PATH" ] && source "$META_PATH"
+}
+
+lock() {
+  local cmd="$1"
+  local start="$(ts)"
+  exec {FD}>"$LOCK_PATH"
+  until flock -n "$FD"; do
+    meta_get
+    if ! alive "$PID"; then
+      rm -f "$LOCK_PATH" "$META_PATH"
+      exec {FD}>"$LOCK_PATH"
+      flock -n "$FD" && break
+    fi
+    [ $(( $(ts) - start )) -ge "$WAIT" ] && return 1
+    sleep 1
+  done
+  meta_set "$$" "$(ts)" "$(whoami)" "$cmd"
+  return 0
+}
+
+unlock() {
+  rm -f "$META_PATH"
+  flock -u "$FD"
+  exec {FD}>&-
+}
+
+inspect() {
+  if [ -f "$META_PATH" ]; then
+    meta_get
+    printf "%s %s %s %s\n" "$PID" "$TIME" "$USER" "$CMD"
+  else
+    printf "free\n"
+  fi
+}
+
+steal() {
+  rm -f "$LOCK_PATH" "$META_PATH"
+}
+
+heartbeat() {
+  meta_get
+  meta_set "$PID" "$(ts)" "$USER" "$CMD"
+}
+
+wait_for() {
+  local s="$1"
+  WAIT="$s"
+  lock "$2"
+}
+
+lock "$0"

@@ -1,0 +1,78 @@
+#!/usr/bin/env bash
+BASE="/data/data/com.termux/files/home/debforge-aarch64/var/spool/debforge"
+FILE="$BASE/queue.list.db"
+LOCK="$BASE/queue.lock"
+touch "$FILE"
+
+lock() { exec 7>"$LOCK"; flock -x 7; }
+unlock() { flock -u 7; exec 7>&-; }
+
+now() { date +%s; }
+
+enqueue() {
+  lock
+  local id="$(now).$$.$RANDOM"
+  local type="$1"
+  local prio="${2:-5}"
+  local payload="$3"
+  printf "%s|%s|%s|%s|queued|%s\n" "$id" "$type" "$prio" "$payload" "$(now)" >> "$FILE"
+  unlock
+  echo "$id"
+}
+
+dequeue() {
+  lock
+  local line="$(sort -t'|' -k3,3n "$FILE" | head -n1)"
+  [ -z "$line" ] && unlock && return 1
+  local id="$(echo "$line" | cut -d'|' -f1)"
+  grep -v "^$id|" "$FILE" > "$FILE.tmp" || true
+  mv "$FILE.tmp" "$FILE"
+  unlock
+  echo "$line"
+}
+
+peek() {
+  sort -t'|' -k3,3n "$FILE" | head -n1
+}
+
+ack() {
+  lock
+  grep -v "^$1|" "$FILE" > "$FILE.tmp" || true
+  mv "$FILE.tmp" "$FILE"
+  unlock
+}
+
+fail() {
+  lock
+  local id="$1"
+  local line="$(grep "^$id|" "$FILE")"
+  grep -v "^$id|" "$FILE" > "$FILE.tmp" || true
+  mv "$FILE.tmp" "$FILE"
+  unlock
+  echo "$line" >> "$BASE/pending.list.db"
+}
+
+list() {
+  cat "$FILE"
+}
+
+count() {
+  wc -l < "$FILE"
+}
+
+cleanup() {
+  lock
+  local max_age="$1"
+  local nowt="$(now)"
+  while IFS='|' read -r i t p d s ts; do
+    [ $((nowt-ts)) -lt "$max_age" ] && printf "%s|%s|%s|%s|%s|%s\n" "$i" "$t" "$p" "$d" "$s" "$ts"
+  done < "$FILE" > "$FILE.tmp"
+  mv "$FILE.tmp" "$FILE"
+  unlock
+}
+
+stats() {
+  printf "queued=%s\n" "$(wc -l < "$FILE")"
+}
+
+"$@"

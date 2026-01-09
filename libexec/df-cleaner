@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+set -e
+ROOT="$(pwd)"
+rm -rf "$ROOT/runtime/stage"/*
+rm -rf "$ROOT/runtime/extract"/*
+rm -rf "$ROOT/var/tmp/debforge"/*
+rm -f "$ROOT/var/lock/"*.lock
+echo "clean complete"

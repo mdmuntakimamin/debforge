@@ -1,0 +1,167 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+ROOT="$HOME/debforge-aarch64"
+VAR="$ROOT/var"
+LIB="$VAR/lib/debforge"
+STATE="$LIB/state"
+CACHE="$VAR/cache/debforge"
+RUN="$VAR/run/debforge"
+LOCK="$VAR/lock"
+LOG="$ROOT/logs/validate.log"
+
+LOCKFILE="$LOCK/validate.lock"
+PIDFILE="$RUN/validate.pid"
+STATEFILE="$STATE/validate.state"
+
+PROJECT_DIR="$PWD"
+DFMETA="$PROJECT_DIR/.debforge/project.db"
+OUTPUT_DIR="$PROJECT_DIR/.debforge/output"
+BUILDROOT="$PROJECT_DIR/.debforge/build"
+DEBIAN_DIR="$BUILDROOT/DEBIAN"
+
+STRICT=0
+
+ts(){ date +"%Y-%m-%d %H:%M:%S"; }
+log(){ printf "[%s][VALIDATE] %s\n" "$(ts)" "$*" | tee -a "$LOG"; }
+die(){ log "ERROR: $1"; exit 1; }
+
+lock(){
+  exec 9>"$LOCKFILE"
+  flock -n 9 || die "validation already running"
+}
+
+pidfile(){
+  mkdir -p "$RUN"
+  echo $$ > "$PIDFILE"
+}
+
+cleanup(){
+  rm -f "$PIDFILE"
+}
+
+state(){
+  printf "%s=%s\n" "$1" "$2" >> "$STATEFILE"
+}
+
+require_tools(){
+  for t in dpkg dpkg-deb awk sed grep find stat sha256sum file; do
+    command -v "$t" >/dev/null || die "$t missing"
+  done
+}
+
+load_meta(){
+  [ -f "$DFMETA" ] || die "not a debforge project"
+  source "$DFMETA"
+}
+
+validate_control(){
+  [ -f "$DEBIAN_DIR/control" ] || die "missing control file"
+  dpkg-deb -f "$OUTPUT_DIR"/*.deb >/dev/null 2>&1 || true
+
+  local required=(Package Version Architecture Maintainer Description)
+  for f in "${required[@]}"; do
+    grep -q "^$f:" "$DEBIAN_DIR/control" || die "control missing $f"
+  done
+}
+
+validate_scripts(){
+  for s in preinst postinst prerm postrm; do
+    if [ -f "$DEBIAN_DIR/$s" ]; then
+      [ -x "$DEBIAN_DIR/$s" ] || die "$s not executable"
+      sh -n "$DEBIAN_DIR/$s" || die "$s syntax error"
+    fi
+  done
+}
+
+validate_permissions(){
+  while IFS= read -r f; do
+    perms=$(stat -c %a "$f")
+    case "$f" in
+      */DEBIAN/*) [ "$perms" -ge 755 ] || die "bad perm $f";;
+      *) [ "$perms" -ge 644 ] || die "bad perm $f";;
+    esac
+  done < <(find "$BUILDROOT" -type f)
+}
+
+validate_rootfs(){
+  [ -d "$BUILDROOT/usr" ] || die "rootfs missing usr/"
+  find "$BUILDROOT" -type f | while read -r f; do
+    file "$f" >/dev/null || die "invalid file $f"
+  done
+}
+
+validate_output_deb(){
+  local deb
+  deb=$(ls "$OUTPUT_DIR"/*.deb 2>/dev/null | head -n1 || true)
+  [ -n "$deb" ] || die "no deb output"
+
+  dpkg-deb -I "$deb" >/dev/null || die "deb metadata invalid"
+  dpkg-deb -c "$deb" >/dev/null || die "deb archive invalid"
+}
+
+validate_checksum(){
+  local deb
+  deb=$(ls "$OUTPUT_DIR"/*.deb | head -n1)
+  sha256sum "$deb" > "$CACHE/validate.checksum"
+}
+
+validate_state(){
+  [ -f "$STATE/build.state" ] || [ "$STRICT" -eq 0 ] || die "missing build state"
+}
+
+validate_layout(){
+  local illegal
+  illegal=$(find "$BUILDROOT" -path "*DEBIAN/DEBIAN*" || true)
+  [ -z "$illegal" ] || die "nested DEBIAN directory"
+}
+
+usage(){
+  cat << USAGE
+debforge-validate [options]
+
+Options:
+  --strict    fail on missing state files
+USAGE
+  exit 0
+}
+
+trap cleanup EXIT
+trap 'die "validation failed"' ERR
+
+main(){
+  : > "$LOG"
+  : > "$STATEFILE"
+
+  lock
+  pidfile
+  require_tools
+
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --strict) STRICT=1; shift;;
+      *) usage;;
+    esac
+  done
+
+  state START "$(date +%s)"
+
+  load_meta
+  log "validating project $NAME"
+
+  validate_control
+  validate_scripts
+  validate_permissions
+  validate_rootfs
+  validate_layout
+  validate_output_deb
+  validate_checksum
+  validate_state
+
+  state STATUS success
+  state END "$(date +%s)"
+
+  log "validation successful"
+}
+
+main "$@"

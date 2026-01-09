@@ -1,0 +1,143 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+ROOT="$HOME/debforge-aarch64"
+BIN="$ROOT/bin"
+CORE="$ROOT/core"
+ENV="$ROOT/env"
+ETC="$ROOT/etc"
+VAR="$ROOT/var"
+
+LOCK="$VAR/lock"
+RUN="$VAR/run/debforge"
+LOGDIR="$ROOT/logs"
+LOG="$LOGDIR/debforge.log"
+
+LOCKFILE="$LOCK/debforge.lock"
+PIDFILE="$RUN/debforge.pid"
+
+export DEBFORGE_ROOT="$ROOT"
+export DEBFORGE_BIN="$BIN"
+export DEBFORGE_CORE="$CORE"
+export DEBFORGE_ENV="$ENV"
+export DEBFORGE_ETC="$ETC"
+export DEBFORGE_VAR="$VAR"
+
+ts(){ date +"%Y-%m-%d %H:%M:%S"; }
+log(){ printf "[%s][DEBFORGE] %s\n" "$(ts)" "$*" | tee -a "$LOG"; }
+die(){ log "FATAL: $1"; exit 1; }
+
+lock(){
+  mkdir -p "$LOCK"
+  exec 9>"$LOCKFILE"
+  flock -n 9 || die "another debforge process is running"
+}
+
+pidfile(){
+  mkdir -p "$RUN"
+  echo $$ > "$PIDFILE"
+}
+
+cleanup(){
+  rm -f "$PIDFILE"
+}
+
+require_tree(){
+  for d in "$BIN" "$CORE" "$ENV" "$ETC" "$VAR"; do
+    [ -d "$d" ] || die "missing $d"
+  done
+}
+
+require_tools(){
+  for t in bash awk sed grep find tar dpkg dpkg-deb rsync; do
+    command -v "$t" >/dev/null || die "missing tool: $t"
+  done
+}
+
+load_environment(){
+  [ -f "$ENV/detect.sh" ] && source "$ENV/detect.sh"
+  [ -f "$ENV/paths.sh" ] && source "$ENV/paths.sh"
+  [ -f "$ENV/sanity.sh" ] && source "$ENV/sanity.sh"
+}
+
+usage(){
+  cat << USAGE
+debforge <command> [options]
+
+Core commands:
+  init         initialize project
+  edit         open editable state
+  build        compile project
+  package      generate .deb
+  install      install .deb
+  run          run package
+  validate     validate package
+  clean        cleanup artifacts
+  remove       uninstall package
+  status       system status
+  env          environment tools
+  debug        diagnostics
+  help         help system
+
+Global options:
+  --version
+  --root <path>
+USAGE
+  exit 0
+}
+
+version(){
+  [ -f "$ROOT/VERSION" ] && cat "$ROOT/VERSION" || echo "unknown"
+}
+
+resolve_cmd(){
+  local cmd="$1"
+  local exe="$BIN/debforge-$cmd"
+  [ -x "$exe" ] || die "unknown command: $cmd"
+  echo "$exe"
+}
+
+dispatch(){
+  local cmd="$1"; shift
+  local exe
+  exe=$(resolve_cmd "$cmd")
+  exec "$exe" "$@"
+}
+
+trap cleanup EXIT
+trap 'die "execution aborted"' ERR
+
+main(){
+  mkdir -p "$LOGDIR"
+  : > "$LOG"
+
+  case "${1:-}" in
+    --version)
+      version
+      exit 0
+      ;;
+    --root)
+      shift
+      ROOT="$1"
+      export DEBFORGE_ROOT="$ROOT"
+      shift
+      ;;
+  esac
+
+  require_tree
+  require_tools
+  lock
+  pidfile
+  load_environment
+
+  local cmd="${1:-}"
+  shift || true
+
+  [ -n "$cmd" ] || usage
+
+  log "command=$cmd args=$*"
+
+  dispatch "$cmd" "$@"
+}
+
+main "$@"

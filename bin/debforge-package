@@ -1,0 +1,132 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+ROOT="$HOME/debforge-aarch64"
+VAR="$ROOT/var"
+LIB="$VAR/lib/debforge"
+STATE="$LIB/state"
+CACHE="$VAR/cache/debforge"
+RUN="$VAR/run/debforge"
+LOCK="$VAR/lock"
+LOG="$ROOT/logs/package.log"
+
+LOCKFILE="$LOCK/build.lock"
+PIDFILE="$RUN/package.pid"
+STATEFILE="$STATE/package.state"
+
+PROJECT_DIR="$PWD"
+DFMETA="$PROJECT_DIR/.debforge/project.db"
+BUILDROOT="$PROJECT_DIR/.debforge/build"
+OUTDIR="$PROJECT_DIR/.debforge/output"
+
+ts(){ date +"%Y-%m-%d %H:%M:%S"; }
+log(){ printf "[%s][PACKAGE] %s\n" "$(ts)" "$*" | tee -a "$LOG"; }
+die(){ log "FATAL: $1"; exit 1; }
+
+lock(){
+  exec 9>"$LOCKFILE"
+  flock -n 9 || die "build locked"
+}
+
+pidfile(){
+  mkdir -p "$RUN"
+  echo $$ > "$PIDFILE"
+}
+
+cleanup(){
+  rm -f "$PIDFILE"
+}
+
+state(){
+  printf "%s=%s\n" "$1" "$2" >> "$STATEFILE"
+}
+
+load_meta(){
+  [ -f "$DFMETA" ] || die "not a debforge project"
+  source "$DFMETA"
+}
+
+prepare_dirs(){
+  rm -rf "$BUILDROOT" "$OUTDIR"
+  mkdir -p "$BUILDROOT/DEBIAN" "$OUTDIR"
+}
+
+copy_rootfs(){
+  rsync -a --exclude=DEBIAN "$PROJECT_DIR/rootfs/" "$BUILDROOT/"
+}
+
+generate_control(){
+  cp "$PROJECT_DIR/debian/control" "$BUILDROOT/DEBIAN/control"
+}
+
+generate_scripts(){
+  for s in preinst postinst prerm postrm; do
+    if [ -f "$PROJECT_DIR/debian/$s" ]; then
+      install -m 755 "$PROJECT_DIR/debian/$s" "$BUILDROOT/DEBIAN/$s"
+    fi
+  done
+}
+
+normalize_perms(){
+  find "$BUILDROOT" -type d -exec chmod 755 {} +
+  find "$BUILDROOT" -type f -exec chmod 644 {} +
+  chmod 755 "$BUILDROOT/DEBIAN"/*
+}
+
+calculate_size(){
+  local size
+  size=$(du -sk "$BUILDROOT" | awk '{print $1}')
+  sed -i "/^Installed-Size:/d" "$BUILDROOT/DEBIAN/control"
+  sed -i "/^Description:/i Installed-Size: $size" "$BUILDROOT/DEBIAN/control"
+}
+
+build_deb(){
+  local deb="$OUTDIR/${NAME}_${VERSION}_${ARCH}.deb"
+  dpkg-deb --build "$BUILDROOT" "$deb"
+  echo "$deb"
+}
+
+checksum(){
+  sha256sum "$1" > "$CACHE/checksum.cache"
+}
+
+verify(){
+  dpkg-deb -I "$1" >/dev/null || die "invalid deb"
+}
+
+trap cleanup EXIT
+trap 'die "package failed"' ERR
+
+main(){
+  : > "$LOG"
+  : > "$STATEFILE"
+
+  lock
+  pidfile
+  load_meta
+
+  state START "$(date +%s)"
+
+  log "packaging $NAME $VERSION $ARCH"
+
+  prepare_dirs
+  copy_rootfs
+  generate_control
+  generate_scripts
+  normalize_perms
+  calculate_size
+
+  DEB=$(build_deb)
+  verify "$DEB"
+  checksum "$DEB"
+
+  state PACKAGE "$NAME"
+  state VERSION "$VERSION"
+  state FILE "$DEB"
+  state STATUS success
+  state END "$(date +%s)"
+
+  log "package created: $DEB"
+}
+
+main "$@"

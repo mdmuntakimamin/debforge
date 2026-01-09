@@ -1,0 +1,14 @@
+Changelog
+=========
+
+Version 1.0.0
+-------------
+- Initial public release of DebForge
+- Implemented command-based CLI interface
+- Added modular core architecture for build logic
+- Environment initialization and cleanup workflow
+- Debian control file handling
+- Package validation and checksum generation
+- Archive and packaging support
+- Logging and state tracking system
+- Installer and uninstaller scripts included

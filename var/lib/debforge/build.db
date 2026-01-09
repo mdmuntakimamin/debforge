@@ -1,0 +1,42 @@
+DB="/data/data/com.termux/files/home/debforge-aarch64/var/lib/debforge/build.db.data"
+touch "$DB"
+
+build_register() {
+  local project="$1"
+  local version="$2"
+  local arch="$3"
+  local time="$(date +%s)"
+  printf "%s|%s|%s|started|%s||\n" "$project" "$version" "$arch" "$time" >> "$DB"
+}
+
+build_finish() {
+  local project="$1"
+  local status="$2"
+  local out="$3"
+  local tmp="$(mktemp)"
+  while IFS='|' read -r p v a s t o f; do
+    if [ "$p" = "$project" ] && [ "$s" = "started" ]; then
+      printf "%s|%s|%s|%s|%s|%s\n" "$p" "$v" "$a" "$status" "$t" "$out" >> "$tmp"
+    else
+      printf "%s|%s|%s|%s|%s|%s\n" "$p" "$v" "$a" "$s" "$t" "$o" >> "$tmp"
+    fi
+  done < "$DB"
+  mv "$tmp" "$DB"
+}
+
+build_last() {
+  grep "^$1|" "$DB" | tail -n1
+}
+
+build_list() {
+  cut -d'|' -f1 "$DB" | sort -u
+}
+
+build_remove() {
+  grep -v "^$1|" "$DB" > "$DB.tmp" || true
+  mv "$DB.tmp" "$DB"
+}
+
+build_export() {
+  cat "$DB"
+}

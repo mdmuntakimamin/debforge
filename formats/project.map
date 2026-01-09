@@ -1,0 +1,42 @@
+project.name        -> PROJECT_NAME
+project.id          -> PROJECT_ID
+project.version     -> PROJECT_VERSION
+project.description -> PROJECT_DESC
+project.license     -> PROJECT_LICENSE
+project.homepage    -> PROJECT_URL
+project.maintainer  -> PROJECT_MAINTAINER
+
+source.type          -> SRC_TYPE
+source.path          -> SRC_PATH
+source.branch        -> SRC_BRANCH
+source.commit        -> SRC_COMMIT
+
+build.system         -> BUILD_SYSTEM
+build.arch           -> BUILD_ARCH
+build.flags          -> BUILD_FLAGS
+build.parallel       -> BUILD_PARALLEL
+build.strip          -> BUILD_STRIP
+
+runtime.entry        -> RUN_ENTRY
+runtime.args         -> RUN_ARGS
+runtime.env          -> RUN_ENV
+
+filesystem.prefix    -> FS_PREFIX
+filesystem.bindir    -> FS_BINDIR
+filesystem.libdir    -> FS_LIBDIR
+filesystem.sharedir  -> FS_SHAREDIR
+filesystem.confdir   -> FS_CONFDIR
+
+dependencies.build_dep -> DEP_BUILD
+dependencies.run_dep   -> DEP_RUN
+dependencies.conflict  -> DEP_CONFLICT
+dependencies.replace  -> DEP_REPLACE
+
+scripts.preinst     -> SCRIPT_PREINST
+scripts.postinst    -> SCRIPT_POSTINST
+scripts.prerm       -> SCRIPT_PRERM
+scripts.postrm      -> SCRIPT_POSTRM
+
+validation.lint      -> VALIDATE_LINT
+validation.checksum  -> VALIDATE_CHECKSUM
+validation.signature -> VALIDATE_SIGNATURE

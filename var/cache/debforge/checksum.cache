@@ -1,0 +1,53 @@
+CACHE_FILE="/data/data/com.termux/files/home/debforge-aarch64/var/cache/debforge/checksum.cache.db"
+touch "$CACHE_FILE"
+
+checksum_compute() {
+  local file="$1"
+  sha256sum "$file" | awk '{print $1}'
+}
+
+checksum_store() {
+  local file="$1"
+  local sum
+  sum="$(checksum_compute "$file")"
+  grep -v "^$file|" "$CACHE_FILE" > "$CACHE_FILE.tmp" || true
+  printf "%s|%s|%s\n" "$file" "$sum" "$(date +%s)" >> "$CACHE_FILE.tmp"
+  mv "$CACHE_FILE.tmp" "$CACHE_FILE"
+}
+
+checksum_get() {
+  local file="$1"
+  grep "^$file|" "$CACHE_FILE" | tail -n1 | cut -d'|' -f2
+}
+
+checksum_time() {
+  local file="$1"
+  grep "^$file|" "$CACHE_FILE" | tail -n1 | cut -d'|' -f3
+}
+
+checksum_verify() {
+  local file="$1"
+  [ ! -f "$file" ] && return 1
+  local old new
+  old="$(checksum_get "$file")"
+  new="$(checksum_compute "$file")"
+  [ "$old" = "$new" ]
+}
+
+checksum_remove() {
+  local file="$1"
+  grep -v "^$file|" "$CACHE_FILE" > "$CACHE_FILE.tmp" || true
+  mv "$CACHE_FILE.tmp" "$CACHE_FILE"
+}
+
+checksum_clear() {
+  : > "$CACHE_FILE"
+}
+
+checksum_list() {
+  cut -d'|' -f1 "$CACHE_FILE"
+}
+
+checksum_export() {
+  cat "$CACHE_FILE"
+}

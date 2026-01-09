@@ -1,0 +1,179 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+ROOT="$HOME/debforge-aarch64"
+
+BIN="$ROOT/bin"
+CORE="$ROOT/core"
+ENV="$ROOT/env"
+ETC="$ROOT/etc"
+VAR="$ROOT/var"
+
+CACHE="$VAR/cache/debforge"
+LIB="$VAR/lib/debforge"
+STATE="$LIB/state"
+RUN="$VAR/run/debforge"
+LOCK="$VAR/lock"
+LOG="$ROOT/logs/install.log"
+
+LOCKFILE="$LOCK/debforge.lock"
+PIDFILE="$RUN/install.pid"
+
+INSTALLED_DB="$LIB/installed.list"
+INSTALL_STATE="$STATE/install.state"
+
+PKG_DIR=""
+DEB_FILE=""
+DRYRUN=0
+FORCE=0
+
+ts(){ date +"%Y-%m-%d %H:%M:%S"; }
+log(){ printf "[%s][INSTALL] %s\n" "$(ts)" "$*" | tee -a "$LOG"; }
+die(){ log "FATAL: $1"; exit 1; }
+
+lock(){
+  exec 9>"$LOCKFILE"
+  flock -n 9 || die "another debforge process is running"
+}
+
+pidfile(){
+  mkdir -p "$RUN"
+  echo $$ > "$PIDFILE"
+}
+
+cleanup(){
+  rm -f "$PIDFILE"
+}
+
+state(){
+  printf "%s=%s\n" "$1" "$2" >> "$INSTALL_STATE"
+}
+
+require_tools(){
+  for t in dpkg dpkg-deb tar; do
+    command -v "$t" >/dev/null || die "$t not found"
+  done
+}
+
+find_deb(){
+  if [ -n "$DEB_FILE" ]; then
+    [ -f "$DEB_FILE" ] || die "deb not found"
+    return
+  fi
+  DEB_FILE=$(ls "$PKG_DIR"/*.deb 2>/dev/null | head -n1 || true)
+  [ -n "$DEB_FILE" ] || die "no .deb found"
+}
+
+parse_control(){
+  dpkg-deb -f "$DEB_FILE" Package Version Architecture Depends
+}
+
+already_installed(){
+  grep -q "^$1 " "$INSTALLED_DB" 2>/dev/null
+}
+
+register_install(){
+  local pkg="$1" ver="$2" arch="$3"
+  sed -i "/^$pkg /d" "$INSTALLED_DB"
+  printf "%s %s %s %s\n" "$pkg" "$ver" "$arch" "$(date -u +%Y%m%d%H%M%S)" >> "$INSTALLED_DB"
+}
+
+resolve_deps(){
+  local deps="$1"
+  [ -z "$deps" ] && return
+  log "resolving dependencies: $deps"
+  for d in $(echo "$deps" | tr ',' '\n' | cut -d' ' -f1); do
+    dpkg -s "$d" >/dev/null 2>&1 || die "dependency missing: $d"
+  done
+}
+
+install_deb(){
+  if [ "$DRYRUN" -eq 1 ]; then
+    log "dry-run: dpkg -i $DEB_FILE"
+    return
+  fi
+  dpkg -i "$DEB_FILE" || die "dpkg install failed"
+}
+
+verify_install(){
+  local pkg="$1"
+  dpkg -s "$pkg" >/dev/null || die "package verification failed"
+}
+
+rollback(){
+  local pkg="$1"
+  log "rollback uninstall $pkg"
+  dpkg -r "$pkg" || true
+}
+
+usage(){
+  cat << USAGE
+debforge-install [options] <path>
+
+Options:
+  --deb <file.deb>
+  --dry-run
+  --force
+
+Examples:
+  debforge-install ./build/
+  debforge-install --deb mypkg.deb
+USAGE
+  exit 1
+}
+
+trap cleanup EXIT
+trap 'die "installation aborted"' ERR
+
+main(){
+  : > "$LOG"
+  mkdir -p "$STATE"
+  : > "$INSTALL_STATE"
+
+  lock
+  pidfile
+  require_tools
+
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --deb) DEB_FILE="$2"; shift 2;;
+      --dry-run) DRYRUN=1; shift;;
+      --force) FORCE=1; shift;;
+      -* ) usage;;
+      * ) PKG_DIR="$1"; shift;;
+    esac
+  done
+
+  [ -n "$PKG_DIR" ] || [ -n "$DEB_FILE" ] || usage
+  [ -n "$PKG_DIR" ] && [ -d "$PKG_DIR" ] || true
+
+  state START "$(date +%s)"
+
+  find_deb
+  log "using deb: $DEB_FILE"
+
+  read PKG VER ARCH DEPS < <(parse_control)
+
+  log "package=$PKG version=$VER arch=$ARCH"
+
+  if already_installed "$PKG" && [ "$FORCE" -ne 1 ]; then
+    die "package already installed"
+  fi
+
+  resolve_deps "$DEPS"
+
+  install_deb
+
+  verify_install "$PKG"
+
+  register_install "$PKG" "$VER" "$ARCH"
+
+  state PACKAGE "$PKG"
+  state VERSION "$VER"
+  state STATUS success
+  state END "$(date +%s)"
+
+  log "installation complete"
+}
+
+main "$@"

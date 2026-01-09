@@ -1,0 +1,33 @@
+DB="/data/data/com.termux/files/home/debforge-aarch64/var/lib/debforge/installed.list.data"
+touch "$DB"
+
+install_add() {
+  local pkg="$1"
+  local version="$2"
+  local arch="$3"
+  local time="$(date +%s)"
+  grep -v "^$pkg|" "$DB" > "$DB.tmp" || true
+  printf "%s|%s|%s|%s\n" "$pkg" "$version" "$arch" "$time" >> "$DB.tmp"
+  mv "$DB.tmp" "$DB"
+}
+
+install_remove() {
+  grep -v "^$1|" "$DB" > "$DB.tmp" || true
+  mv "$DB.tmp" "$DB"
+}
+
+install_exists() {
+  grep -q "^$1|" "$DB"
+}
+
+install_version() {
+  grep "^$1|" "$DB" | cut -d'|' -f2
+}
+
+install_list() {
+  cut -d'|' -f1 "$DB"
+}
+
+install_export() {
+  cat "$DB"
+}

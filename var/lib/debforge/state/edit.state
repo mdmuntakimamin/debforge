@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+STATE_FILE="/data/data/com.termux/files/home/debforge-aarch64/var/lib/debforge/state/edit.state.db"
+LOCK_FILE="/data/data/com.termux/files/home/debforge-aarch64/var/lib/debforge/state/edit.lock"
+touch "$STATE_FILE"
+
+lock() { exec 9>"$LOCK_FILE"; flock -x 9; }
+unlock() { flock -u 9; }
+
+init() {
+  lock
+  printf "STATE=idle\nPROJECT=\nFILE=\nEDITOR=\nPID=\nSTART=\nEND=\nCHANGES=\nERROR=\n" > "$STATE_FILE"
+  unlock
+}
+
+load() { source "$STATE_FILE"; }
+
+begin() {
+  lock
+  printf "STATE=editing\nPROJECT=%s\nFILE=%s\nEDITOR=%s\nPID=%s\nSTART=%s\nEND=\nCHANGES=0\nERROR=\n" \
+  "$1" "$2" "$3" "$$" "$(date +%s)" > "$STATE_FILE"
+  unlock
+}
+
+change() {
+  lock
+  load
+  local c=$((CHANGES+1))
+  printf "STATE=%s\nPROJECT=%s\nFILE=%s\nEDITOR=%s\nPID=%s\nSTART=%s\nEND=\nCHANGES=%s\nERROR=\n" \
+  "$STATE" "$PROJECT" "$FILE" "$EDITOR" "$PID" "$START" "$c" > "$STATE_FILE"
+  unlock
+}
+
+finish() {
+  lock
+  load
+  printf "STATE=finished\nPROJECT=%s\nFILE=%s\nEDITOR=%s\nPID=%s\nSTART=%s\nEND=%s\nCHANGES=%s\nERROR=\n" \
+  "$PROJECT" "$FILE" "$EDITOR" "$PID" "$START" "$(date +%s)" "$CHANGES" > "$STATE_FILE"
+  unlock
+}
+
+fail() {
+  lock
+  load
+  printf "STATE=failed\nPROJECT=%s\nFILE=%s\nEDITOR=%s\nPID=%s\nSTART=%s\nEND=%s\nCHANGES=%s\nERROR=%s\n" \
+  "$PROJECT" "$FILE" "$EDITOR" "$PID" "$START" "$(date +%s)" "$CHANGES" "$1" > "$STATE_FILE"
+  unlock
+}
+
+status() { load; printf "%s\n" "$STATE"; }
+reset() { init; }

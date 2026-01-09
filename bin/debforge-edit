@@ -1,0 +1,177 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+ROOT="$HOME/debforge-aarch64"
+
+CORE="$ROOT/core"
+HOOKS="$ROOT/hooks"
+
+VAR="$ROOT/var"
+LIB="$VAR/lib/debforge"
+STATE="$LIB/state"
+RUN="$VAR/run/debforge"
+LOCK="$VAR/lock"
+
+PROJ="$LIB/project.db"
+EDITSTATE="$STATE/edit.state"
+PIDFILE="$RUN/edit.pid"
+LOCKFILE="$LOCK/debforge.lock"
+
+LOG="$ROOT/logs/edit.log"
+
+ts(){ date +"%Y-%m-%d %H:%M:%S"; }
+log(){ printf "[%s][EDIT] %s\n" "$(ts)" "$*" | tee -a "$LOG"; }
+die(){ log "FATAL: $1"; exit 1; }
+
+lock(){
+  exec 9>"$LOCKFILE"
+  flock -n 9 || die "another debforge process running"
+}
+
+pidfile(){
+  mkdir -p "$RUN"
+  echo $$ > "$PIDFILE"
+}
+
+cleanup(){
+  rm -f "$PIDFILE"
+}
+
+require_project(){
+  [ -f "$PROJ" ] || die "project not initialized"
+}
+
+kv_get(){
+  grep "^$1=" "$PROJ" | cut -d= -f2-
+}
+
+kv_set(){
+  local k="$1" v="$2"
+  sed -i "/^$k=/d" "$PROJ"
+  printf "%s=%s\n" "$k" "$v" >> "$PROJ"
+  log "set $k"
+}
+
+snapshot(){
+  cp "$PROJ" "$PROJ.bak.$(date +%s)"
+}
+
+validate(){
+  "$CORE/project.sh" validate
+}
+
+list_keys(){
+  cut -d= -f1 "$PROJ"
+}
+
+edit_interactive(){
+  log "interactive edit start"
+  snapshot
+  while true; do
+    echo
+    echo "FIELDS:"
+    nl -w2 -s'. ' "$PROJ"
+    echo
+    echo "[number]=edit  a=add  d=delete  q=quit"
+    read -rp "> " cmd
+
+    case "$cmd" in
+      q) break ;;
+      a)
+        read -rp "key: " k
+        read -rp "value: " v
+        kv_set "$k" "$v"
+        ;;
+      d)
+        read -rp "key: " k
+        sed -i "/^$k=/d" "$PROJ"
+        log "deleted $k"
+        ;;
+      *)
+        if [[ "$cmd" =~ ^[0-9]+$ ]]; then
+          line=$(sed -n "${cmd}p" "$PROJ") || continue
+          key="${line%%=*}"
+          val="${line#*=}"
+          read -rp "$key [$val]: " new
+          [ -n "$new" ] && kv_set "$key" "$new"
+        fi
+        ;;
+    esac
+  done
+  validate
+  log "interactive edit complete"
+}
+
+edit_cli(){
+  snapshot
+  for arg in "$@"; do
+    case "$arg" in
+      *=*)
+        kv_set "${arg%%=*}" "${arg#*=}"
+        ;;
+      *)
+        die "invalid arg $arg"
+        ;;
+    esac
+  done
+  validate
+}
+
+dump(){
+  cat "$PROJ"
+}
+
+state_mark(){
+  printf "%s=%s\n" "$1" "$2" >> "$EDITSTATE"
+}
+
+usage(){
+  cat << USAGE
+debforge-edit
+debforge-edit key=value [...]
+debforge-edit --list
+debforge-edit --dump
+USAGE
+  exit 1
+}
+
+trap cleanup EXIT
+trap 'die "edit aborted"' ERR
+
+main(){
+  mkdir -p "$STATE" "$RUN"
+  : > "$EDITSTATE"
+  : > "$LOG"
+
+  lock
+  pidfile
+  require_project
+
+  state_mark START "$(date +%s)"
+
+  [ -x "$HOOKS/pre-edit.sh" ] && "$HOOKS/pre-edit.sh"
+
+  case "${1:-}" in
+    "")
+      edit_interactive
+      ;;
+    --list)
+      list_keys
+      ;;
+    --dump)
+      dump
+      ;;
+    *)
+      edit_cli "$@"
+      ;;
+  esac
+
+  [ -x "$HOOKS/post-edit.sh" ] && "$HOOKS/post-edit.sh"
+
+  state_mark END "$(date +%s)"
+  state_mark STATUS success
+
+  log "EDIT COMPLETE"
+}
+
+main "$@"

@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+set -e
+PKG="$1"
+[ ! -f "$PKG" ] && echo "deb required" && exit 1
+TMP="$(mktemp -d)"
+dpkg-deb -R "$PKG" "$TMP"
+[ ! -f "$TMP/DEBIAN/control" ] && echo "control missing" && exit 1
+dpkg-deb --info "$PKG" > /dev/null
+dpkg-deb --contents "$PKG" > /dev/null
+if grep -q "Architecture: all" "$TMP/DEBIAN/control"; then true; fi
+rm -rf "$TMP"
+echo "package valid"

@@ -1,0 +1,179 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+ROOT="$HOME/debforge-aarch64"
+VAR="$ROOT/var"
+LIB="$VAR/lib/debforge"
+STATE="$LIB/state"
+RUN="$VAR/run/debforge"
+LOCK="$VAR/lock"
+CACHE="$VAR/cache/debforge"
+ETC="$ROOT/etc"
+ENVROOT="$ROOT/env"
+LOGDIR="$ROOT/logs"
+LOG="$LOGDIR/run.log"
+
+LOCKFILE="$LOCK/run.lock"
+PIDFILE="$RUN/run.pid"
+STATEFILE="$STATE/run.state"
+
+PROJECT_DIR="$PWD"
+DFMETA="$PROJECT_DIR/.debforge/project.db"
+OUTPUT_DIR="$PROJECT_DIR/.debforge/output"
+RUNTIME_DIR="$PROJECT_DIR/.debforge/runtime"
+SANDBOX_DIR="$RUNTIME_DIR/sandbox"
+ROOTFS_DIR="$RUNTIME_DIR/rootfs"
+TMP_DIR="$RUNTIME_DIR/tmp"
+HOME_DIR="$RUNTIME_DIR/home"
+BIN_DIR="$ROOT/bin"
+
+ENTRYPOINT=""
+ARGS=()
+DRYRUN=0
+SANDBOX=1
+PROFILE="default"
+
+ts(){ date +"%Y-%m-%d %H:%M:%S"; }
+log(){ printf "[%s][RUN] %s\n" "$(ts)" "$*" | tee -a "$LOG"; }
+die(){ log "FATAL: $1"; exit 1; }
+
+lock(){
+  exec 9>"$LOCKFILE"
+  flock -n 9 || die "run locked"
+}
+
+pidfile(){
+  mkdir -p "$RUN"
+  echo $$ > "$PIDFILE"
+}
+
+cleanup(){
+  rm -f "$PIDFILE"
+}
+
+state(){
+  printf "%s=%s\n" "$1" "$2" >> "$STATEFILE"
+}
+
+require_tools(){
+  for t in dpkg dpkg-deb tar rsync env; do
+    command -v "$t" >/dev/null || die "$t missing"
+  done
+}
+
+load_meta(){
+  [ -f "$DFMETA" ] || die "not a debforge project"
+  source "$DFMETA"
+}
+
+prepare_dirs(){
+  rm -rf "$RUNTIME_DIR"
+  mkdir -p "$SANDBOX_DIR" "$ROOTFS_DIR" "$TMP_DIR" "$HOME_DIR"
+}
+
+extract_deb(){
+  local deb
+  deb=$(ls "$OUTPUT_DIR"/*.deb 2>/dev/null | head -n1 || true)
+  [ -n "$deb" ] || die "no deb to run"
+  dpkg-deb -x "$deb" "$ROOTFS_DIR"
+}
+
+apply_profile(){
+  local pfile="$ETC/profiles/$PROFILE.profile"
+  [ -f "$pfile" ] || die "profile not found"
+  source "$pfile"
+}
+
+resolve_entrypoint(){
+  if [ -n "$ENTRYPOINT" ]; then
+    [ -x "$ROOTFS_DIR/$ENTRYPOINT" ] || die "entrypoint not executable"
+    return
+  fi
+  ENTRYPOINT=$(find "$ROOTFS_DIR/usr/bin" -type f -executable | head -n1 || true)
+  [ -n "$ENTRYPOINT" ] || die "no executable found"
+}
+
+build_env(){
+  export PATH="/usr/bin:/bin"
+  export HOME="$HOME_DIR"
+  export TMPDIR="$TMP_DIR"
+}
+
+sandbox_exec(){
+  local cmd=("$@")
+  if [ "$DRYRUN" -eq 1 ]; then
+    log "dry-run: ${cmd[*]}"
+    return
+  fi
+  if [ "$SANDBOX" -eq 1 ]; then
+    env -i \
+      PATH="$PATH" \
+      HOME="$HOME" \
+      TMPDIR="$TMPDIR" \
+      ROOTFS="$ROOTFS_DIR" \
+      bash -c "cd '$ROOTFS_DIR' && exec '${cmd[@]}'"
+  else
+    exec "${cmd[@]}"
+  fi
+}
+
+usage(){
+  cat << USAGE
+debforge-run [options] [--] [args...]
+
+Options:
+  --entry <path>    specify entrypoint
+  --no-sandbox      disable sandbox
+  --dry-run         print execution only
+  --profile <name>  select profile
+USAGE
+  exit 1
+}
+
+trap cleanup EXIT
+trap 'die "runtime failed"' ERR
+
+main(){
+  : > "$LOG"
+  : > "$STATEFILE"
+
+  lock
+  pidfile
+  require_tools
+  load_meta
+
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --entry) ENTRYPOINT="$2"; shift 2;;
+      --no-sandbox) SANDBOX=0; shift;;
+      --dry-run) DRYRUN=1; shift;;
+      --profile) PROFILE="$2"; shift 2;;
+      --) shift; ARGS+=("$@"); break;;
+      -* ) usage;;
+      * ) ARGS+=("$1"); shift;;
+    esac
+  done
+
+  state START "$(date +%s)"
+  state PROJECT "$NAME"
+  state VERSION "$VERSION"
+  state PROFILE "$PROFILE"
+
+  log "preparing runtime"
+  prepare_dirs
+  extract_deb
+  apply_profile
+  resolve_entrypoint
+  build_env
+
+  state ENTRYPOINT "$ENTRYPOINT"
+  log "executing $ENTRYPOINT ${ARGS[*]}"
+
+  sandbox_exec "$ENTRYPOINT" "${ARGS[@]}"
+
+  state STATUS success
+  state END "$(date +%s)"
+  log "run completed"
+}
+
+main "$@"

@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+PID_FILE="/data/data/com.termux/files/home/debforge-aarch64/var/run/debforge/run.pid.data"
+
+exists() { kill -0 "$1" 2>/dev/null; }
+
+register() {
+  printf "PID=%s\nEXEC=%s\nSTART=%s\n" "$$" "$1" "$(date +%s)" > "$PID_FILE"
+}
+
+load() { [ -f "$PID_FILE" ] && source "$PID_FILE"; }
+
+cleanup() {
+  load
+  [ "$PID" = "$$" ] && rm -f "$PID_FILE"
+}
+
+wait_for() {
+  load
+  while exists "$PID"; do
+    sleep 1
+  done
+  rm -f "$PID_FILE"
+}
+
+kill_run() {
+  load
+  exists "$PID" && kill -KILL "$PID"
+}
+
+status() {
+  if [ -f "$PID_FILE" ]; then
+    load
+    exists "$PID" && echo "running $EXEC $PID" || echo "dead"
+  else
+    echo "idle"
+  fi
+}
+
+trap cleanup EXIT
+register "$1"

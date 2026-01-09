@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+PID_FILE="/data/data/com.termux/files/home/debforge-aarch64/var/run/debforge/build.pid.data"
+
+pid_alive() { kill -0 "$1" 2>/dev/null; }
+
+write_pid() {
+  printf "PID=%s\nSTART=%s\nCMD=%s\n" "$$" "$(date +%s)" "$0" > "$PID_FILE"
+}
+
+read_pid() { [ -f "$PID_FILE" ] && source "$PID_FILE"; }
+
+clear_pid() { rm -f "$PID_FILE"; }
+
+claim() {
+  if [ -f "$PID_FILE" ]; then
+    read_pid
+    if pid_alive "$PID"; then
+      exit 1
+    else
+      clear_pid
+    fi
+  fi
+  write_pid
+}
+
+release() {
+  read_pid
+  [ "$PID" = "$$" ] && clear_pid
+}
+
+status() {
+  if [ -f "$PID_FILE" ]; then
+    read_pid
+    pid_alive "$PID" && echo "running $PID" || echo "stale"
+  else
+    echo "idle"
+  fi
+}
+
+trap release EXIT
+claim

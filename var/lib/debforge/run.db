@@ -1,0 +1,36 @@
+DB="/data/data/com.termux/files/home/debforge-aarch64/var/lib/debforge/run.db.data"
+touch "$DB"
+
+run_start() {
+  local pkg="$1"
+  local exec="$2"
+  local pid="$$"
+  local time="$(date +%s)"
+  printf "%s|%s|%s|running|%s||\n" "$pkg" "$exec" "$pid" "$time" >> "$DB"
+}
+
+run_finish() {
+  local pkg="$1"
+  local code="$2"
+  local tmp="$(mktemp)"
+  while IFS='|' read -r p e pid s t f; do
+    if [ "$p" = "$pkg" ] && [ "$s" = "running" ]; then
+      printf "%s|%s|%s|finished|%s|%s\n" "$p" "$e" "$pid" "$t" "$code" >> "$tmp"
+    else
+      printf "%s|%s|%s|%s|%s|%s\n" "$p" "$e" "$pid" "$s" "$t" "$f" >> "$tmp"
+    fi
+  done < "$DB"
+  mv "$tmp" "$DB"
+}
+
+run_last() {
+  grep "^$1|" "$DB" | tail -n1
+}
+
+run_list() {
+  cut -d'|' -f1 "$DB" | sort -u
+}
+
+run_export() {
+  cat "$DB"
+}
